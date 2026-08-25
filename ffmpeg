@@ -1,0 +1,163 @@
+@echo off
+setlocal EnableDelayedExpansion
+title Extraccion de fotogramas por segundo completo con FFmpeg
+
+echo ============================================================
+echo         EXTRACCION DE FOTOGRAMAS - FFmpeg 
+echo ============================================================
+echo.
+
+REM ============================================================
+REM 1. INGRESAR DATOS
+REM ============================================================
+
+set /p "FULL_PATH=Arrastra el video aqui o escribe la ruta completa: "
+set /p "TIMES=Tiempos en segundos por espacios o comas (ej. 5, 35, 90): "
+
+REM Quitar comillas si el usuario las escribio
+set "FULL_PATH=%FULL_PATH:"=%"
+
+REM Separar la ruta del directorio y el nombre del archivo con extension
+for %%A in ("%FULL_PATH%") do (
+    set "VIDEO_DIR=%%~dpA"
+    set "VIDEO_NAME=%%~nxA"
+    set "BASE_NAME=%%~nA"
+)
+
+REM Quitar la barra diagonal final del directorio si existe
+if "%VIDEO_DIR:~-1%"=="\" set "VIDEO_DIR=%VIDEO_DIR:~0,-1%"
+
+
+REM ============================================================
+REM 2. COMPROBACIONES
+REM ============================================================
+
+if not exist "%FULL_PATH%" (
+    echo.
+    echo ERROR: No se encontro el archivo de video:
+    echo "%FULL_PATH%"
+    echo.
+    pause
+    exit /b 1
+)
+
+where ffmpeg >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: FFmpeg no esta instalado o no esta agregado al PATH.
+    echo.
+    pause
+    exit /b 1
+)
+
+where ffprobe >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: FFprobe no esta instalado o no esta agregado al PATH.
+    echo.
+    pause
+    exit /b 1
+)
+
+
+REM ============================================================
+REM 3. CREAR EXPRESION SELECT PARA EL SEGUNDO COMPLETO
+REM ============================================================
+
+REM Limpiar comas por espacios para evitar conflictos de sintaxis en el bucle
+set "CLEAN_TIMES=%TIMES:,= %"
+set "SELECT_EXPR="
+
+for %%T in (%CLEAN_TIMES%) do (
+    if defined SELECT_EXPR (
+        set "SELECT_EXPR=!SELECT_EXPR!+"
+    )
+    REM Abarca desde el segundo exacto (T) hasta exactamente un segundo después (T+1)
+    set "SELECT_EXPR=!SELECT_EXPR!between(t,%%T,%%T+1)"
+)
+
+
+REM ============================================================
+REM 4. CALCULO DINAMICO REAL DE PADDING (Basado en Duracion y FPS)
+REM ============================================================
+
+set "OUTPUT_DIR=%VIDEO_DIR%\Fotogramas_%BASE_NAME%"
+
+if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
+
+:: Obtener la duracion exacta en segundos usando ffprobe
+for /f "tokens=*" %%i in ('ffprobe -v error -select_streams v:0 -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "%FULL_PATH%" 2^>nul') do (
+    set "VIDEO_DURATION=%%i"
+)
+
+:: Obtener los fotogramas por segundo (fps / r_frame_rate) usando ffprobe
+for /f "tokens=*" %%i in ('ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 "%FULL_PATH%" 2^>nul') do (
+    set "FRAME_RATE=%%i"
+)
+
+:: Si la duracion o el fps vienen vacios por el tipo de contenedor, asignamos un respaldo seguro de 5 digitos
+if "!VIDEO_DURATION!"=="" set "VIDEO_DURATION=600"
+if "!FRAME_RATE!"=="" set "FRAME_RATE=15"
+
+:: Truco matemático en CMD: Extraer la parte entera de la duracion ignorando decimales
+for /f "tokens=1 delims=." %%a in ("%VIDEO_DURATION%") do set "DUR_INT=%%a"
+
+:: Como r_frame_rate viene a veces en formato fraccionario (ej. 15/1 o 30000/1001), evaluamos si contiene '/'
+echo "!FRAME_RATE!" | findstr "/" >nul
+if not errorlevel 1 (
+    for /f "tokens=1,2 delims=/" %%g in ("%FRAME_RATE%") do (
+        set /a "FPS_CALC=%%g / %%h"
+    )
+) else (
+    for /f "tokens=1 delims=." %%g in ("%FRAME_RATE%") do set "FPS_CALC=%%g"
+)
+
+if "!FPS_CALC!"=="" set "FPS_CALC=15"
+
+:: Calcular el total estimado de fotogramas del video completo
+set /a "ESTIMATED_FRAMES=DUR_INT * FPS_CALC"
+
+:: Algoritmo para medir la longitud de caracteres del total estimado de fotogramas
+set "PAD_DIGITS=0"
+set "TEMP_VAL=!ESTIMATED_FRAMES!"
+
+:CountLoop
+if defined TEMP_VAL (
+    set "TEMP_VAL=!TEMP_VAL:~1!"
+    set /a "PAD_DIGITS+=1"
+    goto CountLoop
+)
+
+:: Asegurar un minimo de 2 digitos y un maximo razonable de seguridad
+if !PAD_DIGITS! LSS 2 set "PAD_DIGITS=2"
+
+echo.
+echo ============================================================
+echo Video:
+echo %FULL_PATH%
+echo Tiempos procesados (Segundos completos):
+echo %CLEAN_TIMES%
+echo Duracion estimada: !DUR_INT! s ^| FPS: !FPS_CALC! ^| Total Frames Estimados: !ESTIMATED_FRAMES!
+echo Padding Dinamico Calculado: !PAD_DIGITS! digitos
+echo Carpeta de salida:
+echo %OUTPUT_DIR%
+echo ============================================================
+echo.
+
+
+REM ============================================================
+REM 5. EJECUTAR FFMPEG
+REM ============================================================
+
+ffmpeg -y -i "%FULL_PATH%" -vf "select='!SELECT_EXPR!'" -compression_level 0 -pred 0 -fps_mode passthrough -frame_pts 1 "%OUTPUT_DIR%\!BASE_NAME!_%%0!PAD_DIGITS!d.png"
+
+echo.
+echo ============================================================
+echo PROCESO TERMINADO
+echo ============================================================
+echo.
+echo Los fotogramas fueron guardados en:
+echo %OUTPUT_DIR%
+echo.
+pause
+endlocal
