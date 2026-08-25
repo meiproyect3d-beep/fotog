@@ -81,7 +81,7 @@ REM ============================================================
 REM 4. CALCULO DINAMICO REAL DE PADDING (Basado en Duracion y FPS)
 REM ============================================================
 
-set "OUTPUT_DIR=%VIDEO_DIR%\Fotogramas_%BASE_NAME%"
+set "OUTPUT_DIR=%VIDEO_DIR%\Fotogramas_%VIDEO_NAME%"
 
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
