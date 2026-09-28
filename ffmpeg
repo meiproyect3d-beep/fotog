@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Extraccion de fotogramas por segundo completo con FFmpeg
+title Extraccion de fotogramas por segundo completo con FFmpeg y Hash (SHA-256)
 
 echo ============================================================
-echo         EXTRACCION DE FOTOGRAMAS - FFmpeg 
+echo         EXTRACCION DE FOTOGRAMAS - FFmpeg + HASH
 echo ============================================================
 echo.
 
@@ -81,7 +81,7 @@ REM ============================================================
 REM 4. CALCULO DINAMICO REAL DE PADDING (Basado en Duracion y FPS)
 REM ============================================================
 
-set "OUTPUT_DIR=%VIDEO_DIR%\Fotogramas_%VIDEO_NAME%"
+set "OUTPUT_DIR=%VIDEO_DIR%\Fotogramas_%BASE_NAME%"
 
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
@@ -128,7 +128,7 @@ if defined TEMP_VAL (
     goto CountLoop
 )
 
-:: Asegurar un minimo de 2 digitos y un maximo razonable de seguridad
+:: Asegurar un minimo de 2 digitos 
 if !PAD_DIGITS! LSS 2 set "PAD_DIGITS=2"
 
 echo.
@@ -149,14 +149,44 @@ REM ============================================================
 REM 5. EJECUTAR FFMPEG
 REM ============================================================
 
-ffmpeg -y -i "%FULL_PATH%" -vf "select='!SELECT_EXPR!'" -compression_level 0 -pred 0 -fps_mode passthrough -frame_pts 1 "%OUTPUT_DIR%\!BASE_NAME!_%%0!PAD_DIGITS!d.png"
+ffmpeg -y -i "%FULL_PATH%" -vf "select='!SELECT_EXPR!'" -compression_level 0 -pred 0 -fps_mode passthrough -frame_pts 1 "%OUTPUT_DIR%\!VIDEO_NAME!_%%0!PAD_DIGITS!d.png"
+
+
+REM ============================================================
+REM 6. GENERAR HASHES SHA-256 
+REM ============================================================
 
 echo.
 echo ============================================================
-echo PROCESO TERMINADO
+echo GENERANDO REPORTE DE HASHES (SHA-256)...
+echo ============================================================
+
+set "HASH_FILE=%OUTPUT_DIR%\hashes_fotogramas.txt"
+
+(
+    echo REPORTE DE HASHES SHA-256 
+    echo Archivo de Video Original: %FULL_PATH%
+    echo Fecha y Hora: %DATE% %TIME%
+    echo ------------------------------------------------------------
+) > "%HASH_FILE%"
+
+for %%F in ("%OUTPUT_DIR%\*.png") do (
+    for /f "tokens=*" %%H in ('certutil -hashfile "%%~fF" SHA256 ^| findstr /v ":"') do (
+        set "HASH_VAL=%%H"
+        REM Limpiar espacios por si acaso
+        set "HASH_VAL=!HASH_VAL: =!"
+        echo %%~nxF  :  !HASH_VAL! >> "%HASH_FILE%"
+    )
+)
+
+echo Reporte de hashes guardado en:
+echo %HASH_FILE%
+echo.
+echo ============================================================
+echo PROCESO TERMINADO CON EXITO
 echo ============================================================
 echo.
-echo Los fotogramas fueron guardados en:
+echo Los fotogramas y el registro hash fueron guardados en:
 echo %OUTPUT_DIR%
 echo.
 pause
